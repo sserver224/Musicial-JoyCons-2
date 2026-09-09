@@ -2,7 +2,6 @@
 import sys
 from customtkinter import *
 from tkinter import filedialog
-from mido1 import *
 import re
 import famistudio_rumble as fr
 from tkinter.messagebox import *
