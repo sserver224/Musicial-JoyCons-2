@@ -4,7 +4,6 @@ from tkinter import *
 from tkinter.ttk import *
 import tkinter as tk
 from tkinter import filedialog
-from mido1 import *
 import re
 import famistudio_rumble as fr
 from tkinter.messagebox import *
