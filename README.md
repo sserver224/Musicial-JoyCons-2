@@ -14,3 +14,5 @@ Test sounds for these channels are:
 4: A burst of noise.
 
 Drums are supported but I tried my best to emulate the noise channel.
+Requirements: `hidapi`
+Optional: `customtkinter` (for the modern GUI)
