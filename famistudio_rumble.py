@@ -20,6 +20,7 @@ Public API:
     set_channel(index, channel)
     all_notes_off()
     get_pos() -> seconds
+    get_battery_level(index) -> raw Switch battery/connection byte
 
 Actuator mapping:
     0: Square1
@@ -804,6 +805,51 @@ def _enumerate_controllers() -> List[Controller]:
     return found
 
 
+def _read_controller_report(c: Controller, timeout_ms: int = 250) -> bytearray:
+    """Read one live Switch input report from a controller.
+
+    The standard full controller report (0x30) contains the raw battery and
+    connection byte at offset 2.  Input reports are streamed by the controller
+    after initialization, so a short blocking read is sufficient here.
+    """
+    deadline = time.monotonic() + max(1, timeout_ms) / 1000.0
+    while time.monotonic() < deadline:
+        remaining = max(1, int((deadline - time.monotonic()) * 1000))
+        data = c.dev.read(64, remaining)
+        if not data:
+            continue
+        report = bytearray(data)
+        if report[0] in (0x30, 0x31, 0x21, 0x3F) and len(report) >= 3:
+            return report
+    raise TimeoutError(f"Timed out waiting for a battery report from {c.kind}.")
+
+
+def _battery_raw(c: Controller) -> int:
+    """Return the exact raw battery/connection byte sent by the controller."""
+    report = _read_controller_report(c)
+    return int(report[2])
+
+
+def _logical_controller_slots() -> List[Tuple[int, Controller, int]]:
+    """Return (logical actuator index, controller, side) for each physical slot."""
+    result = []
+    slot = 0
+    for c in _controllers:
+        for side in range(c.slots):
+            result.append((slot + 1, c, side))
+            slot += 1
+    return result
+
+
+def _battery_is_low(raw: int) -> bool:
+    """Switch Pro battery levels are 0,2,4,6,8 in the high nibble.
+
+    4 is the controller's low-battery level; 2 is critical and 0 is empty.
+    The low nibble contains charging/connection information and is ignored.
+    """
+    return (raw & 0xF0) <= 0x20
+
+
 def _write_controller_slots(c: Controller, values: List[Tuple[float, float]]) -> None:
     """
     values has one tuple per physical actuator side represented by this
@@ -1165,6 +1211,14 @@ def play() -> None:
                 "No Nintendo Switch controllers were visible to HIDAPI. "
                 "Check HIDAPI installation and Linux hidraw/udev permissions."
             )
+
+        try:
+            _check_batteries_before_play()
+        except Exception:
+            _close_controllers()
+            _controllers = []
+            raise
+
         _stop_evt.clear()
         _state = 1
         if _thread is None or not _thread.is_alive():
@@ -1218,6 +1272,48 @@ def set_master_pitch(a4_hz: float) -> None:
         raise ValueError("A4 frequency must be a positive finite number.")
     with _lock:
         _master_pitch = float(a4_hz)
+
+
+def get_battery_level(index: int) -> int:
+    """Return the raw battery/connection byte sent by the mapped controller.
+
+    ``index`` is a one-based physical/logical actuator index (1-6).  A Pro
+    Controller has two actuators, so both indices assigned to it report the
+    same controller battery byte.  The returned value is the exact byte from
+    Switch input report 0x30 byte 2; its high nibble is the battery level and
+    its low nibble contains charging/connection flags.
+    """
+    if index < 1 or index > len(CHANNELS):
+        raise ValueError("index must be in the range 1-6")
+    with _lock:
+        if not _controllers:
+            cs = _enumerate_controllers()
+            if not cs:
+                raise RuntimeError("No compatible Nintendo Switch controllers are connected.")
+            globals()["_controllers"] = cs
+        for logical_index, c, _side in _logical_controller_slots():
+            if logical_index == index:
+                return _battery_raw(c)
+    raise IndexError("No controller actuator exists at the requested index")
+
+
+def _check_batteries_before_play() -> None:
+    """Raise RuntimeError if any connected actuator reports a low battery."""
+    low = []
+    # Read once per physical controller, then apply that raw level to each of
+    # its logical actuator slots.
+    for c in _controllers:
+        raw = _battery_raw(c)
+        if _battery_is_low(raw):
+            for logical_index, controller, _side in _logical_controller_slots():
+                if controller is c:
+                    low.append(logical_index)
+    if low:
+        names = ", ".join(str(i) for i in low)
+        raise RuntimeError(
+            f"Logical actuators {names} have a critically low battery. "
+            "Please charge them before attempting to play."
+        )
 
 
 def set_channel(index: int, channel: int) -> None:
