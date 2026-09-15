@@ -7,6 +7,7 @@ from tkinter import filedialog
 import re
 import famistudio_rumble as fr
 from tkinter.messagebox import *
+from idlelib.tooltip import Hovertip
 def close():
     stop()
     root.destroy()
@@ -27,7 +28,7 @@ def check():
         open_b.config(state=NORMAL)
         stop_b.config(state=DISABLED)
         for i in range(6):
-            exec(f'sp{i}.config(state=NORMAL)')
+            exec(f'sp{i}.config(state="readonly")')
         fr.all_notes_off()
         for i in range(6):
             exec(f'b{i+1}.config(state=NORMAL)')
@@ -93,7 +94,7 @@ def stop():
     mp.config(state=NORMAL)
     stop_b.config(state=DISABLED)
     for i in range(6):
-        exec(f'sp{i}.config(state=NORMAL)')
+        exec(f'sp{i}.config(state="readonly")')
     open_b.config(state=NORMAL)
     for i in range(6):
         exec(f'b{i+1}.config(state=NORMAL)')
@@ -109,6 +110,40 @@ def test_master_pitch(x):
 def set_channel():
     for i in range (6):
         exec(f'fr.set_channel({i+1}, int(sp{i}.get()[0]))')
+def get_battery(index):
+    try:
+        raw = fr.get_battery_level(index)
+    except IndexError:
+        showerror("Controller Info", f"No controller is in slot {index}.")
+    else:
+        battery = (raw >> 4) & 0x0F
+        conn_info = raw & 0x0F
+
+        battery_levels = {
+            8: "full",
+            6: "medium",
+            4: "low",
+            2: "critical",
+            0: "empty",
+        }
+
+        level = battery_levels.get(battery, "unknown")
+
+        controller_type = (conn_info >> 1) & 0x03
+        powered = bool(conn_info & 0x01)
+
+        if controller_type == 0:
+            conn = "Pro/Charging Grip"
+        elif controller_type == 3:
+            conn = "Joy-Con"
+        else:
+            conn = "unknown"
+
+        if powered:
+            conn += ", Wired"
+        
+        showinfo("Controller Info", f"Logical actuator {index}:\nBattery: {level}\nConnection info: {conn}")
+
 root=Tk()
 fr.set_loop(False)
 root.filename=''
@@ -147,11 +182,17 @@ Label(frame10, text="JoyCon Mapping:").pack()
 for i in range(3):
     exec(f'frame{i+13}=Frame(frame10)')
     exec(f'frame{i+13}.pack()')
-    exec(f'Label(frame{i+13}, text="Actuator {i*2+1}:").pack(side=LEFT)')
+    exec(f'f{i}=Label(frame{i+13}, text="Actuator {i*2+1}:", cursor="hand2")')
+    exec(f'f{i}.pack(side=LEFT)')
+    exec(f'f{i}.bind("<Button-1>", lambda x: get_battery({i*2+1}))')
+    exec(f'Hovertip(f{i}, "Click to view connection info")')
     exec(f'sp{i*2}=Spinbox(frame{i+13}, from_=1, to=6, width=3, state="readonly", command=set_channel)')
     exec(f'sp{i*2}.pack(side=LEFT, padx=5)')
     exec(f'sp{i*2}.set({i*2+1})')
-    exec(f'Label(frame{i+13}, text="Actuator {i*2+2}:").pack(side=LEFT, padx=5)')
+    exec(f'f{i*2}=Label(frame{i+13}, text="Actuator {i*2+2}:", cursor="hand2")')
+    exec(f'f{i*2}.pack(side=LEFT, padx=5)')
+    exec(f'Hovertip(f{i*2}, "Click to view connection info")')
+    exec(f'f{i*2}.bind("<Button-1>", lambda x: get_battery({i*2+2}))')
     exec(f'sp{i*2+1}=Spinbox(frame{i+13}, from_=1, to=6, width=3, state="readonly", command=set_channel)')
     exec(f'sp{i*2+1}.pack(side=LEFT, padx=5)')
     exec(f'sp{i*2+1}.set({i*2+2})')
