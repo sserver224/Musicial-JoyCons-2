@@ -5,6 +5,7 @@ from tkinter import filedialog
 import re
 import famistudio_rumble as fr
 from tkinter.messagebox import *
+from idlelib.tooltip import Hovertip
 def close():
     stop()
     root.destroy()
@@ -110,6 +111,39 @@ def set_channel(x):
 def set_pitch(v):
     fr.set_master_pitch(v)
     cal_l.configure(text=f"A₄={v} Hz")
+def get_battery(index):
+    try:
+        raw = fr.get_battery_level(index)
+    except IndexError:
+        showerror("Controller Info", f"No controller is in slot {index}.")
+    else:
+        battery = (raw >> 4) & 0x0F
+        conn_info = raw & 0x0F
+
+        battery_levels = {
+            8: "full",
+            6: "medium",
+            4: "low",
+            2: "critical",
+            0: "empty",
+        }
+
+        level = battery_levels.get(battery, "unknown")
+
+        controller_type = (conn_info >> 1) & 0x03
+        powered = bool(conn_info & 0x01)
+
+        if controller_type == 0:
+            conn = "Pro/Charging Grip"
+        elif controller_type == 3:
+            conn = "Joy-Con"
+        else:
+            conn = "unknown"
+
+        if powered:
+            conn += ", Wired"
+        
+        showinfo("Controller Info", f"Logical actuator {index}:\nBattery: {level}\nConnection info: {conn}")
 root=CTk()
 fr.set_loop(False)
 root.filename=''
@@ -150,11 +184,17 @@ ch_l=("Square 1", "Square 2", "Triangle", "Noise", "MMC5 S1", "MMC5 S2")
 for i in range(3):
     exec(f'frame{i+13}=CTkFrame(frame10)')
     exec(f'frame{i+13}.pack()')
-    exec(f'CTkLabel(frame{i+13}, text="Actuator {i*2+1}:").pack(side=LEFT)')
+    exec(f'f{i}=CTkLabel(frame{i+13}, text="Actuator {i*2+1}:", cursor="hand2")')
+    exec(f'f{i}.pack(side=LEFT)')
+    exec(f'f{i}.bind("<Button-1>", lambda x: get_battery({i*2+1}))')
+    exec(f'Hovertip(f{i}, "Click to view connection info")') 
     exec(f'sp{i*2}=CTkOptionMenu(frame{i+13}, values=("1", "2", "3", "4", "5", "6"), command=set_channel)')
     exec(f'sp{i*2}.pack(side=LEFT, padx=5)')
     exec(f'sp{i*2}.set({i*2+1})')
-    exec(f'CTkLabel(frame{i+13}, text="Actuator {i*2+2}:").pack(side=LEFT, padx=5)')
+    exec(f'f{i*2}=CTkLabel(frame{i+13}, text="Actuator {i*2+2}:", cursor="hand2")')
+    exec(f'f{i*2}.pack(side=LEFT, padx=5)')
+    exec(f'Hovertip(f{i*2}, "Click to view connection info")') 
+    exec(f'f{i*2}.bind("<Button-1>", lambda x: get_battery({i*2+2}))')
     exec(f'sp{i*2+1}=CTkOptionMenu(frame{i+13}, values=("1", "2", "3", "4", "5", "6"), command=set_channel)')
     exec(f'sp{i*2+1}.pack(side=LEFT, padx=5)')
     exec(f'sp{i*2+1}.set({i*2+2})')
