@@ -156,6 +156,7 @@ class Controller:
     packet_no: int = 0
     slots: int = 1
     closed: bool = False
+    last_rumble_write: float = 0.0
 
     def close(self) -> None:
         if not self.closed:
@@ -670,7 +671,22 @@ def _controller_kind(pid: int) -> Tuple[str, int]:
 
 
 def _send(dev: Controller, payload: bytearray) -> None:
-    """Send a Switch HID output report and fail loudly on short writes."""
+    """Send a Switch HID output report and fail loudly on short writes.
+
+    The Switch Pro Controller is sensitive to overly frequent Bluetooth
+    rumble writes. SDL's current HIDAPI driver limits Switch rumble writes to
+    30 ms apart; faster output can actually make a controller power off or
+    drop the Bluetooth link. Keep an explicit per-controller guard here as a
+    second line of defense, especially when the renderer falls behind and
+    tries to catch up with multiple frames.
+    """
+    if payload and payload[0] == 0x10 and dev.is_bluetooth:
+        now = time.monotonic()
+        wait = 0.030 - (now - dev.last_rumble_write)
+        if wait > 0:
+            time.sleep(wait)
+        dev.last_rumble_write = time.monotonic()
+
     n = dev.dev.write(payload)
     if n is None or n < 0:
         raise OSError("hid_write failed")
@@ -847,7 +863,7 @@ def _battery_is_low(raw: int) -> bool:
     4 is the controller's low-battery level; 2 is critical and 0 is empty.
     The low nibble contains charging/connection information and is ignored.
     """
-    return (raw & 0xF0) <= 0x20
+    return (raw & 0xF0) <= 0x40
 
 
 def _write_controller_slots(c: Controller, values: List[Tuple[float, float]]) -> None:
@@ -1101,6 +1117,11 @@ def _render_frame(frame: int) -> None:
             _last_hid_diagnostics.append(
                 f"PLAYBACK HID write failed on {c.kind}: {type(exc).__name__}: {exc}"
             )
+            # Do not silently continue after a controller write failure.
+            # Continuing to render while the HID link is gone can leave the
+            # controller disconnected and makes the failure look like a
+            # random mid-song shutdown.
+            raise
 
 
 def _play_thread() -> None:
@@ -1311,7 +1332,7 @@ def _check_batteries_before_play() -> None:
     if low:
         names = ", ".join(str(i) for i in low)
         raise RuntimeError(
-            f"Logical actuators {names} have a critically low battery. "
+            f"Logical actuators {names} have a low battery. "
             "Please charge them before attempting to play."
         )
 
