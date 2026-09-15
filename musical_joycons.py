@@ -115,6 +115,10 @@ def get_battery(index):
         raw = fr.get_battery_level(index)
     except IndexError:
         showerror("Controller Info", f"No controller is in slot {index}.")
+    except OSError:
+        showerror("Operation failed", "The command has failed. Check if the controller has shut down unexpectedly.")
+    except RuntimeError:
+        showerror("No controller", "There are no JoyCons or ProCons connected.")
     else:
         battery = (raw >> 4) & 0x0F
         conn_info = raw & 0x0F
